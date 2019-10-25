@@ -1,20 +1,21 @@
 # CodeLensOopProvider example 
 A example for demonstrating how to use the public CodeLens API to create an out-of-proc extesnion that provides a CodeLens indictor showing most recent Git commits made to the source code.
 
-* Technologies: Visual Studio 2017 SDK
+* Technologies: Visual Studio 2019 SDK
 * Topics: CodeLens
 
 **Description**
 
 This example generates a VSIX extension that packs two components:
 * **CodeLensOopProvider.dll**: This assembly contains a CodeLens data point provider that retrieves most recent commits from git repo where the source code are commited. This assembly is loaded by the CodeLens service which runs out of the Visual Studio process.
-* **CodeLensOopProvidervsix.dll**: This assembly provides a VSPackage which handles the command invoked when a users clicks on a commit from the commit indicator detail pane. This assembly is loaded by the Visual Studio process.
+* **CodeLensOopProviderVsix.dll**: This assembly provides a VSPackage which handles the command invoked when a users clicks on a commit from the commit indicator detail pane and MEF component providing ViewElementFactory able to convert custom data object provided by the data point into a visual presentation. This assembly is loaded by the Visual Studio process.
+* **CodeLensOopProviderShared.dll**: This assembly contains data structures shared by the two previous projects. This assembly is loaded by by both the CodeLens service which runs out of the Visual Studio process and by the Visual Studio process.
 
 ![image](src/CodeLensOopProvider.jpg)
 
 **Requirements**
 
-The example requires Visual Studio 2017 15.8 Preview 3 and above versions, Community SKU and above.
+The example requires Visual Studio 2019 16.1 and above versions, Community SKU and above.
 
 **Getting Started**
 
@@ -79,3 +80,60 @@ The example requires Visual Studio 2017 15.8 Preview 3 and above versions, Commu
             OLEMSGDEFBUTTON.OLEMSGDEFBUTTON_FIRST);
     }
    ```
+
+5. Custom details UI
+
+   In addition to standard CodeLensDetailsDescriptor.Entries, GitCommitDataPointProvider also provides CodeLensDetailsDescriptor.CustomData instance, which is an object of the GitCommitCustomDetailsData type.
+
+   ```c#
+   var result = new CodeLensDetailsDescriptor()
+   {
+       Headers = CreateHeaders(),
+       Entries = CreateEntries(commits),
+       CustomData = new List<GitCommitCustomDetailsData>()
+       {
+           new GitCommitCustomDetailsData() 
+           {
+               CommitDescription = firstCommit.Message,
+               CommitAuthor = firstCommit.Author.Name,
+               CommitSha = firstCommit.Sha
+           }
+       },
+
+   ```
+
+   ViewElementFactory class in CodeLensOopProviderVsix project converts GitCommitCustomDetailsData into a visual representation that is being shown in the details popup.
+
+   ```c#
+    [Export(typeof(IViewElementFactory))]
+    [Name("Git commit details UI factory")]
+    [TypeConversion(from: typeof(GitCommitCustomDetailsData), to: typeof(FrameworkElement))]
+    [Order]
+    internal class ViewElementFactory : IViewElementFactory
+    {
+        public TView CreateViewElement<TView>(ITextView textView, object model) where TView : class
+        {
+            // Should never happen if the service's code is correct, but it's good to be paranoid.
+            if (typeof(FrameworkElement) != typeof(TView))
+            {
+                throw new ArgumentException($"Invalid type conversion. Unsupported {nameof(model)} or {nameof(TView)} type");
+            }
+
+            if (model is GitCommitCustomDetailsData detailsData)
+            {
+                var detailsUI = new GitCommitDetails();
+                detailsUI.DataContext = detailsData;
+                return detailsUI as TView;
+            }
+
+            return null;
+        }
+    }
+   ```
+
+**Notes**
+
+- As of Visual Studio 16.3.2 the version of StreamJsonRPC must be 1.5.x or lower in proc, which means the Microsoft.VisualStudio.Language package version has to be 16.0.467 or lower as a released version.
+- You can check the latest versions of packages supported by Visual Studio IDE in proc by looking at the binding redirects inside devenv.exe.config.
+- The out of proc can use the latest 2.x version of StreamJsonRPC and the latest version of Microsoft.VisualStudio.Language.
+
